@@ -30,6 +30,9 @@ class AppService {
       this._Iot.attachPrincipalPolicyAsync = Promise.promisify(this._Iot.attachPrincipalPolicy).bind(this._Iot)
       this._Iot.createPolicyAsync = Promise.promisify(this._Iot.createPolicy).bind(this._Iot)
       this._Iot.attachThingPrincipalAsync = Promise.promisify(this._Iot.attachThingPrincipal).bind(this._Iot)
+      this._Iot.deleteCertificateAsync = Promise.promisify(this._Iot.deleteCertificate).bind(this._Iot)
+      this._Iot.updateCertificateAsync = Promise.promisify(this._Iot.updateCertificate).bind(this._Iot)
+      this._Iot.describeCertificateAsync = Promise.promisify(this._Iot.describeCertificate).bind(this._Iot)
     }
     return this._Iot
   }
@@ -66,8 +69,36 @@ class AppService {
     })
   }
 
+  async getCertBySnAsync(sn) {
+    // get connection
+    let connect = await this.pool.getConnectionAsync()
+    try {
+      // query if exist
+      let result = await connect.queryAsync(`select * from device where sn = '${ sn }'`)
+      if (result.length) {
+        let certificateId = results[0].certId
+        let desc = await this.iot.describeCertificateAsync({ certificateId })
+        if (desc && desc.certificateDescription) {
+          return desc.certificateDescription
+        }
+      }
+    } finally {
+      connect.release()
+    }
+  }
+
   /* eslint-disable */
   async registByCsr ({ sn, reversion, csr, type }) {
+    let desc = await this.getCertBySnAsync(sn)
+    if (desc && desc.status === "ACTIVE") {
+      if (desc.status !== "ACTIVE")
+        await this.iot.updateCertificateAsync({certificateId: desc.certificateId, newStatus:"ACTIVE"})
+      return {
+        certPem: desc.certificatePem,
+        certId: desc.certificateId,
+        certArn: desc.certificateArn
+      }
+    }
 
     let data = await this.iot.createCertificateFromCsrAsync({
       certificateSigningRequest: csr,
@@ -133,9 +164,8 @@ class AppService {
     await connect.beginTransactionAsync()
     try {
       // insert device info into device table
-      await connect.queryAsync('INSERT INTO device (sn, certId, keyId) VALUES (?,?,?)',
+      await connect.queryAsync(`INSERT INTO device (sn, certId, keyId) VALUES (?,?,?) on duplicate key update certId='${certificateId}' keyId='${keyId}'`,
         [sn, certificateId, keyId])
-
       // insert certInfo into deviceCert
       await connect.queryAsync('INSERT INTO deviceCert (keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSn) VALUES (?,?,?,?,?,?,?,?)',
         [keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSN])
@@ -143,6 +173,7 @@ class AppService {
       await connect.commitAsync()      
     } catch(e) {
       await connect.rollbackAsync()
+      connect.release()
       throw e
     }
     connect.release()
