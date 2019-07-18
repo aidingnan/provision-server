@@ -75,8 +75,8 @@ class AppService {
     Promise.promisifyAll(connect)
     try {
       // query if exist
-      let result = await connect.queryAsync(`select * from device where sn = '${ sn }'`)
-      if (result.length) {
+      let results = await connect.queryAsync(`select * from device where sn = '${ sn }'`)
+      if (results.length) {
         let certificateId = results[0].certId
         let desc = await this.iot.describeCertificateAsync({ certificateId })
         if (desc && desc.certificateDescription) {
