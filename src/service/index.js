@@ -69,9 +69,10 @@ class AppService {
     })
   }
 
-  async getCertBySnAsync(sn) {
+  async getCertBySNAsync(sn) {
     // get connection
     let connect = await this.pool.getConnectionAsync()
+    Promise.promisifyAll(connect)
     try {
       // query if exist
       let result = await connect.queryAsync(`select * from device where sn = '${ sn }'`)
@@ -89,7 +90,7 @@ class AppService {
 
   /* eslint-disable */
   async registByCsr ({ sn, reversion, csr, type }) {
-    let desc = await this.getCertBySnAsync(sn)
+    let desc = await this.getCertBySNAsync(sn)
     if (desc && desc.status === "ACTIVE") {
       if (desc.status !== "ACTIVE")
         await this.iot.updateCertificateAsync({certificateId: desc.certificateId, newStatus:"ACTIVE"})
