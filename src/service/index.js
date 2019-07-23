@@ -168,7 +168,7 @@ class AppService {
       await connect.queryAsync(`INSERT INTO device (sn, certId, keyId) VALUES (?,?,?) on duplicate key update certId='${certificateId}', keyId='${keyId}'`,
         [sn, certificateId, keyId])
       // insert certInfo into deviceCert
-      await connect.queryAsync('INSERT INTO deviceCert (keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSn) VALUES (?,?,?,?,?,?,?,?)',
+      await connect.queryAsync(`INSERT INTO deviceCert (keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSn) VALUES (?,?,?,?,?,?,?,?) on duplicate key update keyId='${keyId}'`,
         [keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSN])
 
       await connect.commitAsync()      
