@@ -21,7 +21,7 @@ module.exports = (service) => {
           token,
         })
       })
-      .catch(e => res.erorr(e))
+      .catch(e => res.error(e))
   })
 
   return router
