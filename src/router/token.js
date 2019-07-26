@@ -8,26 +8,20 @@
  */
 
 const Router = require('express').Router
-const jwt = require('jwt-simple')
 
-const secret = 'aaaacc'
-
-module.exports = () => {
+module.exports = (service) => {
   const router = Router()
 
   router.get('/', (req, res) => {
     let key = req.query.key
-    if (key === 'aabbcc') {
-      return res.success({
-        type: 'JWT',
-        token: jwt.encode({
-          key,
-          time: new Date().getTime()
-        }, secret)
+    service.getTokenAsync(key)
+      .then(token => {
+        res.success({
+          type: 'JWT',
+          token,
+        })
       })
-    }
-    
-    return res.error(Object.assign(new Error('Permission Denied'), { status: 401 }))
+      .catch(e => res.erorr(e))
   })
 
   return router

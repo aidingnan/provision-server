@@ -11,6 +11,7 @@ const AWS = require('aws-sdk')
 const Promise = require('bluebird')
 const mysql = require('mysql')
 const x509 = require('@fidm/x509')
+const jwt = require('jwt-simple')
 
 const devicePolicy = require('./devicePolicy')
 
@@ -21,6 +22,8 @@ class AppService {
     this.awsConfig.update({
       region: config.iot.region
     })
+
+    this.AppSecret = 'abccaccb'
   }
 
   get iot() {
@@ -184,6 +187,47 @@ class AppService {
       certId: certificateId,
       certArn: certificateArn
     }
+  }
+
+  async getCodeInfoAsync (code) {
+    // get connection
+    let connect = await this.pool.getConnectionAsync()
+    Promise.promisifyAll(connect)
+    try {
+      // query if exist
+      let results = await connect.queryAsync(`select UNIX_TIMESTAMP(createdAt)  as createdAt, UNIX_TIMESTAMP(expiredAt) as expiredAt from provisionCode where code = '${ code }'`)
+      if (results.length) {
+        return results[0]
+      } else {
+        throw new Error(`${code} not found`)
+      }
+    } finally {
+      connect.release()
+    }
+  }
+
+  async getTokenAsync (code) {
+    if (typeof code != 'string' || !code.length) {
+      throw Object.assign(new Error('code not found'), { status: 400 })
+    }
+
+    let info = await this.getCodeInfoAsync(code)
+    if (new Date().getTime() / 1000 > info.expiredAt) {
+      throw Object.assign(new Error('code already expired'), { status: 400 })
+    }
+
+    return jwt.encode({
+      code,
+      expiredAt: info.expiredAt,
+      createdAt: info.createdAt
+    }, this.AppSecret)
+  }
+
+  async verifyTokenAsync(token) {
+    let payload = jwt.decode(token, this.AppSecret)
+    if (payload.expiredAt > new Date().getTime() / 1000)
+      return true
+    return false
   }
 
 }
