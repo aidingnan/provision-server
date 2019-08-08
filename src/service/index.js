@@ -90,11 +90,37 @@ class AppService {
       connect.release()
     }
   }
+  
+  async preparePolicy(policyName) {
+    // create policy
+    try {
+      await this.iot.createPolicyAsync({ policyDocument: JSON.stringify(devicePolicy), policyName: policyName })
+    } catch(e) {
+      //Ignore if the policy already exists
+      if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
+        e.status = 500
+        throw e
+      }
+    }
+  }
+
+  async attachPolicy(policyName, certificateArn) {
+    // Attach the policy to the certificate
+    try {
+      await this.iot.attachPrincipalPolicyAsync({ policyName: policyName, principal: certificateArn })
+    } catch(e) {
+      //Ignore if the policy already exists
+      if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
+        e.status = 500
+        throw e
+      }
+    }
+  }
 
   /* eslint-disable */
   async registByCsr ({ sn, reversion, csr, type }) {
     let desc = await this.getCertBySNAsync(sn)
-    if (desc && desc.status === "ACTIVE") {
+    if (desc) {
       if (desc.status !== "ACTIVE")
         await this.iot.updateCertificateAsync({certificateId: desc.certificateId, newStatus:"ACTIVE"})
       return {
@@ -109,33 +135,12 @@ class AppService {
       setAsActive: true
     })
     
-    let certificateId = data.certificateId
-    let certificatePem = data.certificatePem
-    let certificateArn = data.certificateArn
+    let { certificateId, certificatePem, certificateArn } = data
 
-    // create policy
     let policyName = 'Policy_Device_Iot'
-    try {
-      await this.iot.createPolicyAsync({ policyDocument: JSON.stringify(devicePolicy), policyName: policyName })
-    } catch(e) {
-      //Ignore if the policy already exists
-      if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
-        e.status = 500
-        throw e
-      }
-    }
-
-    // Attach the policy to the certificate
-    try {
-      await this.iot.attachPrincipalPolicyAsync({ policyName: policyName, principal: certificateArn })
-    } catch(e) {
-      //Ignore if the policy already exists
-      if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
-        e.status = 500
-        throw e
-      }
-    }
-
+    await this.preparePolicy(policyName)
+    await this.attachPolicy(attachPolicy, certificateArn)
+    
     if (type === 'test') {
       try {
         await this.iot.attachThingPrincipalAsync({
