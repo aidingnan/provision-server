@@ -139,7 +139,7 @@ class AppService {
 
     let policyName = 'Policy_Device_Iot'
     await this.preparePolicy(policyName)
-    await this.attachPolicy(attachPolicy, certificateArn)
+    await this.attachPolicy(policyName, certificateArn)
     
     if (type === 'test') {
       try {
