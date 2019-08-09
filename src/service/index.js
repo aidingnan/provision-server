@@ -55,6 +55,14 @@ class AppService {
     return this._pool
   }
 
+  get dynamodb() {
+    if (!this._dynamodb) {
+      this._dynamodb = new AWS.DynamoDB(this.awsConfig)
+      this._dynamodb.putItemAsync = Promise.promisify(this._dynamodb.putItem).bind(this._dynamodb)
+    }
+    return this._dynamodb
+  }
+  
   destroy () {
     if (this._pool)
       this._pool.end(err => console.log(err))
@@ -91,7 +99,7 @@ class AppService {
     }
   }
   
-  async preparePolicy(policyName) {
+  async preparePolicyAsync(policyName) {
     // create policy
     try {
       await this.iot.createPolicyAsync({ policyDocument: JSON.stringify(devicePolicy), policyName: policyName })
@@ -104,7 +112,7 @@ class AppService {
     }
   }
 
-  async attachPolicy(policyName, certificateArn) {
+  async attachPolicyAsync(policyName, certificateArn) {
     // Attach the policy to the certificate
     try {
       await this.iot.attachPrincipalPolicyAsync({ policyName: policyName, principal: certificateArn })
@@ -138,33 +146,35 @@ class AppService {
     let { certificateId, certificatePem, certificateArn } = data
 
     let policyName = 'Policy_Device_Iot'
-    await this.preparePolicy(policyName)
-    await this.attachPolicy(policyName, certificateArn)
+    await this.preparePolicyAsync(policyName)
+    await this.attachPolicyAsync(policyName, certificateArn)
+
+    // if (type === 'test') {
+    //   try {
+    //     await this.iot.attachThingPrincipalAsync({
+    //       thingName: 'testEnv',
+    //       principal: certificateArn
+    //     })
+    //   } catch (e) {
+    //     if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
+    //       e.status = 500
+    //       throw e
+    //     }
+    //   }
+    // }
     
-    if (type === 'test') {
-      try {
-        await this.iot.attachThingPrincipalAsync({
-          thingName: 'testEnv',
-          principal: certificateArn
-        })
-      } catch (e) {
-        if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
-          e.status = 500
-          throw e
-        }
-      }
-    }
-
     // Get infomation in x509 pem
-    let certInfo = x509.Certificate.fromPEM(certificatePem)
-    let keyId = certInfo.subjectKeyIdentifier
-    let authkeyId = certInfo.authorityKeyIdentifier
-
-    let sub_o = certInfo.subject.organizationName || null
-    let sub_cn = certInfo.subject.commonName || null
-    let iss_o = certInfo.issuer.organizationName || null
-    let iss_cn = certInfo.issuer.commonName || null
-    let iss_ou = certInfo.issuer.organizationalUnitName || null
+    const certInfo = x509.Certificate.fromPEM(certificatePem)
+    const keyId = certInfo.subjectKeyIdentifier
+    const authkeyId = certInfo.authorityKeyIdentifier
+    const subject = certInfo.subject
+    const issuer = certInfo.issuer
+    const sub_o = subject.organizationName || null
+    const sub_cn = subject.commonName || null
+    const iss_o = issuer.organizationName || null
+    const iss_cn = issuer.commonName || null
+    const iss_ou = issuer.organizationalUnitName || null
+    const iss_sn = issuer.serialName || null
     
     let certSN = certInfo.serialNumber
     let connect = await this.pool.getConnectionAsync()
