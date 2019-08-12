@@ -11,9 +11,18 @@ const AWS = require('aws-sdk')
 const Promise = require('bluebird')
 const mysql = require('mysql')
 const x509 = require('@fidm/x509')
+const { PEM, ASN1 } = require('@fidm/asn1')
 const jwt = require('jwt-simple')
-
 const devicePolicy = require('./devicePolicy')
+
+const table = 'winas-cert'
+const policyName = 'Policy_Device_Iot'
+const defaultDomain = 'aws-cn'
+// OID
+const O = '2.5.4.10'
+const CN = '2.5.4.3'
+const OU = '2.5.4.11'
+const SN = '2.5.4.5'
 
 class AppService {
   constructor (config) {
@@ -33,6 +42,7 @@ class AppService {
       this._Iot.attachPrincipalPolicyAsync = Promise.promisify(this._Iot.attachPrincipalPolicy).bind(this._Iot)
       this._Iot.createPolicyAsync = Promise.promisify(this._Iot.createPolicy).bind(this._Iot)
       this._Iot.attachThingPrincipalAsync = Promise.promisify(this._Iot.attachThingPrincipal).bind(this._Iot)
+      this._Iot.detachPolicyAsync = Promise.promisify(this._Iot.detachPolicy).bind(this._Iot)
       this._Iot.deleteCertificateAsync = Promise.promisify(this._Iot.deleteCertificate).bind(this._Iot)
       this._Iot.updateCertificateAsync = Promise.promisify(this._Iot.updateCertificate).bind(this._Iot)
       this._Iot.describeCertificateAsync = Promise.promisify(this._Iot.describeCertificate).bind(this._Iot)
@@ -55,12 +65,14 @@ class AppService {
     return this._pool
   }
 
-  get dynamodb() {
-    if (!this._dynamodb) {
-      this._dynamodb = new AWS.DynamoDB(this.awsConfig)
-      this._dynamodb.putItemAsync = Promise.promisify(this._dynamodb.putItem).bind(this._dynamodb)
+  get docClient() {
+    if (!this._docClient) {
+      this._docClient = new AWS.DynamoDB.DocumentClient(this.awsConfig)
+      this._docClient.putAsync = Promise.promisify(this._docClient.put).bind(this._docClient)
+      this._docClient.deleteAsync = Promise.promisify(this._docClient.delete).bind(this._docClient)
+      this._docClient.getAsync = Promise.promisify(this._docClient.get).bind(this._docClient)
     }
-    return this._dynamodb
+    return this._docClient
   }
   
   destroy () {
@@ -80,7 +92,8 @@ class AppService {
     })
   }
 
-  async getCertBySNAsync(sn) {
+  /*
+  async getCertBySNAsync(sn, domain) {
     // get connection
     let connect = await this.pool.getConnectionAsync()
     Promise.promisifyAll(connect)
@@ -97,7 +110,7 @@ class AppService {
     } finally {
       connect.release()
     }
-  }
+  }*/
   
   async preparePolicyAsync(policyName) {
     // create policy
@@ -125,18 +138,61 @@ class AppService {
     }
   }
 
-  /* eslint-disable */
-  async registByCsr ({ sn, reversion, csr, type }) {
-    let desc = await this.getCertBySNAsync(sn)
-    if (desc) {
-      if (desc.status !== "ACTIVE")
-        await this.iot.updateCertificateAsync({certificateId: desc.certificateId, newStatus:"ACTIVE"})
-      return {
-        certPem: desc.certificatePem,
-        certId: desc.certificateId,
-        certArn: desc.certificateArn
+  async rollbackCertAsync(certId, certArn) {
+    await this.iot.updateCertificateAsync({
+      certificateId: certId,
+      newStatus: 'INACTIVE'
+    })
+    try {
+      await this.iot.detachPolicyAsync({
+        target: certArn,
+        policyName
+      })
+      await this.iot.deleteCertificate({ certificateId: certId })
+    } catch(e) { // ignore error
+      console.log(e)
+    }
+  }
+
+  async getCertBySNAsync(sn, domain) {
+    if (!domain) domain = defaultDomain
+    if (!sn) throw Object.assign(new Error('sn not found'), { status: 400 })
+    const params = {
+      TableName: table,
+      Key: {
+          sn,
+          domain
       }
     }
+    let result = await this.docClient.getAsync(params)
+    return result && result.Item
+  }
+
+  parseCSR(csr) {
+    const pems = PEM.parse(csr)
+    const asn1 = ASN1.fromDER(pems[0].body)
+    const SEQUENCE = asn1.value && asn1.value.length && asn1.value[0]
+    if (!SEQUENCE) return
+    const OIDs = SEQUENCE.value && SEQUENCE.value.length > 1 && SEQUENCE.value[1]
+    if (!OIDs || !OIDs.value || !OIDs.value.length) return
+    const result = {}
+    OIDs.value.forEach(x => {
+      let items = x.value && x.value.length && x.value[0].value
+      // OID  === 6
+      if (!items || items.length != 2 || items[0].tag !== 6) return
+      result[items[0].value] = items[1].value
+    })
+    if (!Object.getOwnPropertyNames(result).length) return
+    return result
+  }
+
+  async registByCsr ({ sn, csr }, { code }) {
+    let result = this.parseCSR(csr)
+    if (!result || !result[OU] || !result[SN]) {
+      throw Object.assign(new Error(' csr miss key property, ou || sn'), { code: 'ECSR', status: 400 })
+    }
+    let item = await this.getCertBySNAsync(result[SN], result[OU])
+    if (item) return item // return exists result
 
     let data = await this.iot.createCertificateFromCsrAsync({
       certificateSigningRequest: csr,
@@ -145,54 +201,52 @@ class AppService {
     
     let { certificateId, certificatePem, certificateArn } = data
 
-    let policyName = 'Policy_Device_Iot'
+    
     await this.preparePolicyAsync(policyName)
     await this.attachPolicyAsync(policyName, certificateArn)
-
-    // if (type === 'test') {
-    //   try {
-    //     await this.iot.attachThingPrincipalAsync({
-    //       thingName: 'testEnv',
-    //       principal: certificateArn
-    //     })
-    //   } catch (e) {
-    //     if (!e.code || e.code !== 'ResourceAlreadyExistsException') {
-    //       e.status = 500
-    //       throw e
-    //     }
-    //   }
-    // }
     
     // Get infomation in x509 pem
     const certInfo = x509.Certificate.fromPEM(certificatePem)
     const keyId = certInfo.subjectKeyIdentifier
-    const authkeyId = certInfo.authorityKeyIdentifier
     const subject = certInfo.subject
-    const issuer = certInfo.issuer
-    const sub_o = subject.organizationName || null
-    const sub_cn = subject.commonName || null
-    const iss_o = issuer.organizationName || null
-    const iss_cn = issuer.commonName || null
-    const iss_ou = issuer.organizationalUnitName || null
-    const iss_sn = issuer.serialName || null
-    
-    let certSN = certInfo.serialNumber
+
+    if (!subject.serialName || subject.serialName !== sn) // sn
+      throw Object.assign(new Error('sn mismatch'), { code: 'EMISMATCH', status: 400 })
+    if (!subject.organizationalUnitName) // domain
+      throw Object.assign(new Error('domain not found in csr`s OU'), { code: 'EDOMAIN', status: 400 })
     let connect = await this.pool.getConnectionAsync()
     Promise.promisifyAll(connect)
+
+    const params = {
+      TableName: table,
+      Item: {
+        certId: certificateId,
+        sn: subject.serialName,
+        domain: subject.organizationalUnitName,
+        sub_cn: subject.commonName,
+        sub_o: subject.organizationName,
+        keyId,
+        certPem: certificatePem,
+        certArn: certificateArn,
+        pcode: code
+      }
+    }
 
     await connect.beginTransactionAsync()
     try {
       // insert device info into device table
       await connect.queryAsync(`INSERT INTO device (sn, certId, keyId) VALUES (?,?,?) on duplicate key update certId='${certificateId}', keyId='${keyId}'`,
         [sn, certificateId, keyId])
-      // insert certInfo into deviceCert
-      await connect.queryAsync(`INSERT INTO deviceCert (keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSn) VALUES (?,?,?,?,?,?,?,?) on duplicate key update keyId='${keyId}'`,
-        [keyId, sub_o, sub_cn, iss_o, iss_cn, iss_ou, authkeyId, certSN])
-
-      await connect.commitAsync()      
+      await this.docClient.putAsync(params)
+      await connect.commitAsync()
     } catch(e) {
       await connect.rollbackAsync()
+      await this.docClient.deleteAsync({
+        TableName: table,
+        Key: { certId: certificateId }
+      })
       connect.release()
+      await this.rollbackCertAsync(certificateId, certificateArn)
       throw e
     }
     connect.release()
@@ -241,10 +295,9 @@ class AppService {
   async verifyTokenAsync(token) {
     let payload = jwt.decode(token, this.AppSecret)
     if (payload.expiredAt > new Date().getTime() / 1000)
-      return true
+      return payload
     return false
   }
-
 }
 
 module.exports = AppService

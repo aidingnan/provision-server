@@ -16,6 +16,7 @@ module.exports =(req, res, next) => {
 
   res.error = (error) => {
     clean()
+    console.log(error)
     if (error.status) {
       return res.status(error.status).json(error)
     }

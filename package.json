@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/CJackYang/factory#readme",
   "dependencies": {
+    "@fidm/asn1": "^1.0.4",
     "@fidm/x509": "^1.2.0",
     "aws-sdk": "^2.322.0",
     "bluebird": "^3.5.2",

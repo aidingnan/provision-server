@@ -40,7 +40,7 @@ module.exports = (service) => {
    */
   router.post('/sign', f(async (req, res) => {
     /* eslint-disable */
-    let data = await service.registByCsr(req.body)
+    let data = await service.registByCsr(req.body, req.authObj)
     res.success(data)
   }))
   return router

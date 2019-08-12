@@ -33,6 +33,7 @@ module.exports = (config) => {
     appService.verifyTokenAsync(token)
       .then(verifyed => {
         if (!verifyed) return res.status(401).end()
+        req.authObj = verifyed
         next()
       })
       .catch(e => res.status(401).end())
