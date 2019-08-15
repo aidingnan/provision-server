@@ -14,6 +14,7 @@ module.exports = (service) => {
 
   router.get('/', (req, res) => {
     let key = req.query.key
+    if (!key) return res.status(401).end()
     service.getTokenAsync(key)
       .then(token => {
         res.success({

@@ -35,8 +35,8 @@ module.exports = (service) => {
    * 1. createCertificateFromCsrAsync
    * 2. set as active
    * 3. attach policy
-   * 4. insert device table
-   * 5. insert deviceCert table
+   * 4. insert into device table
+   * 5. insert into certificate popl
    */
   router.post('/sign', f(async (req, res) => {
     /* eslint-disable */

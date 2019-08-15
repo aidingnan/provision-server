@@ -268,7 +268,7 @@ class AppService {
       if (results.length) {
         return results[0]
       } else {
-        throw new Error(`${code} not found`)
+        throw Object.assign(new Error(`${code} not found`), { status: 401 })
       }
     } finally {
       connect.release()
@@ -277,12 +277,12 @@ class AppService {
 
   async getTokenAsync (code) {
     if (typeof code != 'string' || !code.length) {
-      throw Object.assign(new Error('code not found'), { status: 400 })
+      throw Object.assign(new Error('code not found'), { status: 401 })
     }
 
     let info = await this.getCodeInfoAsync(code)
     if (new Date().getTime() / 1000 > info.expiredAt) {
-      throw Object.assign(new Error('code already expired'), { status: 400 })
+      throw Object.assign(new Error('code already expired'), { status: 403 })
     }
 
     return jwt.encode({
