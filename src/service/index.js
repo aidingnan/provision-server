@@ -46,6 +46,8 @@ class AppService {
       this._Iot.deleteCertificateAsync = Promise.promisify(this._Iot.deleteCertificate).bind(this._Iot)
       this._Iot.updateCertificateAsync = Promise.promisify(this._Iot.updateCertificate).bind(this._Iot)
       this._Iot.describeCertificateAsync = Promise.promisify(this._Iot.describeCertificate).bind(this._Iot)
+      this._Iot.createThingAsync = Promise.promisify(this._Iot.createThing).bind(this._Iot)
+      this._Iot.detachThingPrincipalAsync = Promise.promisify(this._Iot.detachThingPrincipal).bind(this._Iot)
     }
     return this._Iot
   }
@@ -138,7 +140,7 @@ class AppService {
     }
   }
 
-  async rollbackCertAsync(certId, certArn) {
+  async rollbackCertAsync(certId, certArn, sn) {
     await this.iot.updateCertificateAsync({
       certificateId: certId,
       newStatus: 'INACTIVE'
@@ -148,7 +150,13 @@ class AppService {
         target: certArn,
         policyName
       })
-      await this.iot.deleteCertificate({ certificateId: certId })
+
+      await this.iot.detachThingPrincipalAsync({
+        thingName: sn,
+        principal: certArn
+      })
+
+      await this.iot.deleteCertificateAsync({ certificateId: certId })
     } catch(e) { // ignore error
       console.log(e)
     }
@@ -160,12 +168,23 @@ class AppService {
     const params = {
       TableName: table,
       Key: {
-          sn,
-          domain
+        sn,
+        domain
       }
     }
     let result = await this.docClient.getAsync(params)
     return result && result.Item
+  }
+
+  async createAndAttachThingAsync(sn, certificateArn) {
+    await this.iot.createThingAsync({
+      thingName: sn
+    })
+
+    await this.iot.attachThingPrincipalAsync({
+      thingName: sn,
+      principal: certificateArn
+    })
   }
 
   parseCSR(csr) {
@@ -204,7 +223,6 @@ class AppService {
     
     await this.preparePolicyAsync(policyName)
     await this.attachPolicyAsync(policyName, certificateArn)
-    
     // Get infomation in x509 pem
     const certInfo = x509.Certificate.fromPEM(certificatePem)
     const keyId = certInfo.subjectKeyIdentifier
@@ -214,6 +232,9 @@ class AppService {
       throw Object.assign(new Error('sn mismatch'), { code: 'EMISMATCH', status: 400 })
     if (!subject.organizationalUnitName) // domain
       throw Object.assign(new Error('domain not found in csr`s OU'), { code: 'EDOMAIN', status: 400 })
+
+    await this.createAndAttachThingAsync(sn, certificateArn, sn)
+
     let connect = await this.pool.getConnectionAsync()
     Promise.promisifyAll(connect)
 
@@ -246,7 +267,7 @@ class AppService {
         Key: { certId: certificateId }
       })
       connect.release()
-      await this.rollbackCertAsync(certificateId, certificateArn)
+      await this.rollbackCertAsync(certificateId, certificateArn, sn)
       throw e
     }
     connect.release()
