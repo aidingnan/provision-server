@@ -16,7 +16,8 @@ const jwt = require('jwt-simple')
 const devicePolicy = require('./devicePolicy')
 
 const table = 'winas-cert'
-const policyName = 'Policy_Device_Iot'
+// const policyName = 'Policy_Device_Iot'
+const policyName = 'test_thingname'
 const defaultDomain = 'aws-cn'
 // OID
 const O = '2.5.4.10'

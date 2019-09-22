@@ -17,7 +17,7 @@ module.exports = {
         "iot:Connect"
       ],
       Resource: [
-        "arn:aws-cn:iot:cn-north-1:569395011106:client/${iot:ClientId}"
+        "arn:aws-cn:iot:cn-north-1:569395011106:client/${iot:Connection.Thing.ThingName}"
       ]
     },
     {
@@ -26,7 +26,7 @@ module.exports = {
         "iot:Publish"
       ],
       Resource: [
-        "arn:aws-cn:iot:cn-north-1:569395011106:topic/device/${iot:ClientId}/*"
+        "arn:aws-cn:iot:cn-north-1:569395011106:topic/device/${iot:Connection.Thing.ThingName}/*"
       ]
     },
     {
@@ -35,7 +35,7 @@ module.exports = {
         "iot:Subscribe"
       ],
       Resource: [
-        "arn:aws-cn:iot:cn-north-1:569395011106:topicfilter/cloud/${iot:ClientId}/*"
+        "arn:aws-cn:iot:cn-north-1:569395011106:topicfilter/cloud/${iot:Connection.Thing.ThingName}/*"
       ]
     },
     {
